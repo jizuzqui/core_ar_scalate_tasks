@@ -39,7 +39,7 @@ public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
     private static final String QUERY_PARAM_FIJO;
 
     //Variables Proceso
-    private static final String CLASS_NAME = "es.bbva.com.qnos.lstAprobador";
+    private static final String CLASS_NAME = "com.bbva.arhe.horasextras.lstAprobador";
     private static final String VAR_PROCESS_APPROVER = "lstAprobadores";
     private static final String VAR_PROCESS_EMPLOYEE = "idUsuarioEmpleado";
     private static final String VAR_PROCESS_EMPDATE = "fechaAltaUsuarioEmpleado";
