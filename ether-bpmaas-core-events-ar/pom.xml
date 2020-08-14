@@ -14,6 +14,12 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.bbva.ether.bpmaas.runtime</groupId>
+            <artifactId>ether-bpmaas-connector-ar-services</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+
+        <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>jcl-over-slf4j</artifactId>
             <version>1.7.7</version>
