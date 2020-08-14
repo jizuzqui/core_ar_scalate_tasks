@@ -28,10 +28,7 @@ import java.util.Map;
 
 public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
 
-    private static final String ENV_AR_END_POINT = System.getenv("SERVICE_AR_CALLBACK_ENDPOINT");
-    private static final String ENV_AR_CONNECTION_TIMEOUT = System.getenv("SERVICE_AR_CALLBACK_CONNECTION_TIMEOUT");
-    private static final String ENV_AR_READ_TIMEOUT = System.getenv("SERVICE_AR_CALLBACK_READ_TIMEOUT");
-
+    private static final String ENV_AR_END_POINT = System.getenv("SERVICE_AR_DEFAULT_ENDPOINT");
     private static final String ENV_AR_ID_SOCIEDAD = System.getenv("SERVICE_AR_ID_SOCIEDAD"); //02
     private static final String ENV_AR_ID_PROCESO = System.getenv("SERVICE_AR_ID_PROCESO"); //54
 
@@ -49,10 +46,6 @@ public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
     private static final String PROP_OBJECT_EMPSUP = "idEmpleadoSup";
     private static final String PROP_OBJECT_EMPSUPDATE = "fechaAltaEmpleadoSup";
 
-    private static final int CONNECTION_TIMEOUT;
-    private static final int READ_TIMEOUT;
-
-
     private RuntimeManager runtimeManager = null;
     private ClassLoader classLoader;
 
@@ -64,8 +57,6 @@ public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
     }
 
     static {
-        CONNECTION_TIMEOUT 	= ENV_AR_CONNECTION_TIMEOUT != null ?  Integer.valueOf(ENV_AR_CONNECTION_TIMEOUT) : 3000;
-        READ_TIMEOUT 		= ENV_AR_READ_TIMEOUT != null ? Integer.valueOf(ENV_AR_READ_TIMEOUT) : 3000;
         QUERY_PARAM_FIJO    = "?P_ID_SOCIEDAD_EMP=" + ENV_AR_ID_SOCIEDAD + "&P_ID_SOCIEDAD_SUP=" + ENV_AR_ID_SOCIEDAD + "&P_PROCESO=" + ENV_AR_ID_PROCESO;
     }
 
@@ -184,8 +175,6 @@ public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
                     ContentType.APPLICATION_JSON.getMimeType(),
                     HttpGet.METHOD_NAME,
                     null);
-            restClient.setConnectionTimeout(CONNECTION_TIMEOUT);
-            restClient.setReadTimeout(READ_TIMEOUT);
         }
         catch(Throwable ex) {
             throw new RuntimeException(ex);
