@@ -48,7 +48,7 @@ spec:
                         libraryBranch = "develop"
                         entrypointParams = [
                             type : "mavenproject",
-                            project : "wrapper"
+                            project : "ether-bpmaas-core-events-ar"
                         ]
                     }
                 }
