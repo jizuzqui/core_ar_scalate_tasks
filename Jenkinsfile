@@ -1,61 +1,79 @@
 #!groovy
-// vim: ft=groovy
-// These 2 need to be authorized using jenkins script approval
-// http://your.jenkins.host/scriptApprovald/
-import groovy.json.JsonOutput
-import java.util.Optional
-import java.util.LinkedHashMap
 
-////////////////////////////////////////
-// MODIFY YOUR PROJECT VARIABLES
-////////////////////////////////////////
+@Library("workflowlibs@1.0.0") _
 
-/********** User defined variables ****/
-uuaa = "events"							// example: qnos
-countryRepoPrefix = "bgba" // example: bgba for Spain 
-repoName = "core_ar_scalate_tasks"					// example: BPMS_QNOS_QNOS
-component = "core-libs"						 // example: process
-architectureVersion = null // example: 1.0.0 - Only applys to process component
-dockerImageVersion = null // example: 0.0.1 - Only applys to process component
-////////////////////////////////////////
-// DO NOT MODIFY FURTHER THIS POINT
-////////////////////////////////////////
-
-/********** Environment variables **********/
-node ('bpm'){
-  globalrepo = "${env.globalrepo}"
-  globalrepo_credentials_id = "${env.globalrepo_credentials_id}"
-  projVerRepo = "${env.proj_ver_repo}"
-  projVerRepoBucket = "${env.proj_ver_repo_bucket}"
-  jenkinsProjVerCredentials = "${env.jenkins_proj_ver_credentials}"
-  jenkinsSshCredentials = "${env.jenkins_ssh_credentials}"
-  jenkinsArtifactoryCredentials = "${env.jenkins_artifactory_credentials}"
-  artifactoryServer = "${env.artifactory_server}"
-  workspace = "${env.WORKSPACE}"
+pipeline {
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    type: deployment
+spec:
+  securityContext:
+    runAsUser: 1000
+  containers:
+  - name: maven
+    image: globaldevtools.bbva.com:5000/hub/bpmaas/jenkins/maven:3.6.1
+    command:
+    - cat
+    tty: true
+    resources:
+      requests:
+        cpu: '1'
+        memory: '2048Mi'
+      limits:
+        cpu: '1'
+        memory: '2048Mi'
+  imagePullSecrets:
+  - name: registrypullsecret
+"""
 }
+    }
+    options {
+        ansiColor('xterm')
+        timestamps()
+    }
+    environment {
+        GOCACHE = "${WORKSPACE}"
+    }
+    stages {
+        stage('Checkout Global Library') {
+            steps {
+                script{
+                    globalBootstrap {
+                        libraryName   = "bpmaas-workflowlibs"
+                        libraryBranch = "develop"
+                        entrypointParams = [
+                            type : "mavenproject",
+                            project : "wrapper"
+                        ]
+                    }
+                }
+            }
+        }
+    }
 
-/********** Global variables **********/
-globalrepoBranch = "develop"
-bpm_node = "bpm"
-
-/********** Project variables **********/
-def repoParams = [
-        "uuaa" : uuaa,
-        "countryRepoPrefix": countryRepoPrefix,
-        "component" : component,
-        "repoName" : repoName,
-		"architectureVersion" : architectureVersion,
-        "dockVer" : dockerImageVersion,
-        "repoBranch" : "${env.BRANCH_NAME}",
-        "workspace" : "${workspace}"
-]
-
-/************ CI Flow ************/
-
-stage("Checkout Global Library") {
-  fileLoader.withGit(globalrepo, globalrepoBranch, globalrepo_credentials_id, bpm_node) {
-    bpm_ci = fileLoader.load('src/bpm/ci/ci');
-  }
+    post {
+        always {
+            echo "We have been through the entire pipeline"
+        }
+        changed {
+            echo "There have been some changes from the last build"
+        }
+        success {
+            echo "Build successful"
+        }
+        failure {
+            echo "There have been some errors"
+        }
+        unstable {
+            echo "Unstable"
+        }
+        aborted {
+            echo "Aborted"
+        }
+    }
 }
-
-bpm_ci.bpm_ci_flow(repoParams)
