@@ -6,7 +6,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.jbpm.services.task.commands.TaskContext;
+import org.jbpm.services.api.ProcessService;
+import org.jbpm.services.api.UserTaskService;
+import org.jbpm.services.api.service.ServiceRegistry;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.entity.ContentType;
 import org.jbpm.services.task.events.DefaultTaskEventListener;
@@ -14,12 +16,10 @@ import org.kie.api.task.TaskEvent;
 import org.kie.api.task.model.Task;
 import org.kie.api.task.model.User;
 import org.kie.internal.task.api.TaskModelProvider;
-
 import org.jbpm.workflow.instance.WorkflowProcessInstance;
 
-import org.kie.api.runtime.manager.RuntimeManager;
-import org.kie.api.runtime.KieSession;
-import org.kie.api.runtime.manager.RuntimeEngine;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -28,66 +28,57 @@ import java.util.Map;
 
 public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
 
-    private static final String ENV_AR_END_POINT = System.getenv("SERVICE_AR_DEFAULT_ENDPOINT");
-    private static final String ENV_AR_ID_SOCIEDAD = System.getenv("SERVICE_AR_ID_SOCIEDAD"); //02
-    private static final String ENV_AR_ID_PROCESO = System.getenv("SERVICE_AR_ID_PROCESO"); //54
+    private static Logger logger = LoggerFactory.getLogger(ARCustomTaskEventListener.class);
 
-    private static final String PATH_ESCALACION = "/api/bpmaasmeta4he/v1/sp/obtenerEscalacionProceso";
-    private static final String QUERY_PARAM_FIJO;
+    private static final String ENV_AR_END_POINT = System.getenv("SERVICE_AR_DEFAULT_ENDPOINT");
+
+    private static final String PATH_ESCALACION = "/api/bpmaasorqhe/v1/obtenerEscalacionHEMule";
 
     //Variables Proceso
     private static final String CLASS_NAME = "com.bbva.arhe.horasextras.lstAprobador";
-    private static final String VAR_PROCESS_APPROVER = "lstAprobadores";
+    private static final String VAR_PROCESS_APPROVER = "lstaprobadores";
     private static final String VAR_PROCESS_EMPLOYEE = "idUsuarioEmpleado";
-    private static final String VAR_PROCESS_EMPDATE = "fechaAltaUsuarioEmpleado";
 
     //Propiedades DataObject
     private static final String PROP_OBJECT_APPROVER = "aprobadores";
     private static final String PROP_OBJECT_EMPSUP = "idEmpleadoSup";
     private static final String PROP_OBJECT_EMPSUPDATE = "fechaAltaEmpleadoSup";
 
-    private RuntimeManager runtimeManager = null;
     private ClassLoader classLoader;
 
     public ARCustomTaskEventListener(){}
-    public ARCustomTaskEventListener(RuntimeManager runtimeManager, ClassLoader classLoader)
+    public ARCustomTaskEventListener(ClassLoader classLoader)
     {
-        this.runtimeManager = runtimeManager;
         this.classLoader = classLoader;
-    }
-
-    static {
-        QUERY_PARAM_FIJO    = "?P_ID_SOCIEDAD_EMP=" + ENV_AR_ID_SOCIEDAD + "&P_ID_SOCIEDAD_SUP=" + ENV_AR_ID_SOCIEDAD + "&P_PROCESO=" + ENV_AR_ID_PROCESO;
     }
 
     @Override
     public void afterTaskReassignedEvent(TaskEvent event) {
 
         Task ti = event.getTask();
+        //Obtener siguiente usuario a Escalar y actualiza variable de proceso (listaAprobadores)
         ArrayList<User> listUsers = getPotentialOwners(ti.getTaskData().getProcessInstanceId());
+        String initialAssignUser = listUsers.get(0).getId();
 
-        //Para obtener Task DataInputs (ti.getTaskData().getTaskInputVariables())
-        //TaskContext context = (TaskContext)event.getTaskContext();
-        //context.loadTaskVariables(ti);
+        logger.info("ProcessId-TaskId[" + ti.getTaskData().getProcessInstanceId() + "-" +ti.getId() + "] InitiallyAssignedUser: " + initialAssignUser);
+
+        UserTaskService userTaskService = (UserTaskService)ServiceRegistry.get().service(ServiceRegistry.USER_TASK_SERVICE);
 
         for (User objUserN : listUsers) {
-            ti.getPeopleAssignments().getPotentialOwners().add(objUserN);
-            System.out.println("List potOwners[" + objUserN.getId() + "]");
+            userTaskService.delegate(ti.getId(), initialAssignUser, objUserN.getId());
         }
+
+        logger.info("ProcessId-TaskId[" + ti.getTaskData().getProcessInstanceId() + "-" +ti.getId() + "] New List potOwners: " + ti.getPeopleAssignments().getPotentialOwners());
 
     }
 
     private ArrayList<User> getPotentialOwners(long  processInstanceId) {
         ArrayList<User> listUsers = new ArrayList<>();
 
-        RuntimeEngine engine = runtimeManager.getRuntimeEngine(null);
-        KieSession ksession = engine.getKieSession();
-        WorkflowProcessInstance processInstance = (WorkflowProcessInstance)ksession.getProcessInstance(processInstanceId);
+        ProcessService adminProcessService = (ProcessService) ServiceRegistry.get().service(ServiceRegistry.PROCESS_SERVICE);
+        WorkflowProcessInstance processInstance = (WorkflowProcessInstance)adminProcessService.getProcessInstance(processInstanceId);
         String idUsuarioEmpleado = (String)processInstance.getVariable(VAR_PROCESS_EMPLOYEE);
-        String fechaAltaUsuarioEmpleado = (String)processInstance.getVariable(VAR_PROCESS_EMPDATE);
         Object lstAprobadores = processInstance.getVariable(VAR_PROCESS_APPROVER);
-        String idEmpleadoSup = null;
-        String fechaAltaEmpleadoSup = null;
 
         ObjectMapper objectMapper = new ObjectMapper();
         JsonNode nodeRoot = objectMapper.valueToTree(lstAprobadores);
@@ -95,38 +86,40 @@ public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
         User objUser;
 
         if(nodeAprobadores != null && nodeAprobadores.size() > 0) {
+            //Get last User
+            String idEmpleadoSup = nodeAprobadores.get(nodeAprobadores.size() - 1).get(PROP_OBJECT_EMPSUP).asText();
+
+            //Add All Users
             for (final JsonNode objNode : nodeAprobadores) {
-                //Set last User
-                idEmpleadoSup = objNode.get(PROP_OBJECT_EMPSUP).asText();
-                fechaAltaEmpleadoSup = objNode.get(PROP_OBJECT_EMPSUPDATE).asText();
-                //
-                objUser = TaskModelProvider.getFactory().newUser(idEmpleadoSup);
+                objUser = TaskModelProvider.getFactory().newUser(objNode.get(PROP_OBJECT_EMPSUP).asText());
                 listUsers.add(objUser);
             }
 
-            ResponseEscaladoDTO objEscalado = getEscalation(idUsuarioEmpleado, fechaAltaUsuarioEmpleado, idEmpleadoSup, fechaAltaEmpleadoSup);
-            objUser = TaskModelProvider.getFactory().newUser("A" + objEscalado.getIdEmpleadoEsc());
-            listUsers.add(objUser);
+            //Get Next User Escalado
+            ResponseEscaladoDTO objEscalado = getEscalation(idUsuarioEmpleado, idEmpleadoSup);
 
-            ObjectNode newNode = objectMapper.createObjectNode();
-            newNode.put(PROP_OBJECT_EMPSUP, "A" + objEscalado.getIdEmpleadoEsc());
-            newNode.put(PROP_OBJECT_EMPSUPDATE, objEscalado.getFecAltaEsc());
-            nodeAprobadores.add(newNode);
+            if(objEscalado != null) {
+                objUser = TaskModelProvider.getFactory().newUser(objEscalado.getIdEmpleadoEsc());
+                listUsers.add(objUser);
 
-            //Update Process variable
-            try {
-                Class<?> clazz = Class.forName(CLASS_NAME, true, classLoader);
+                //Add New User Escalado
+                ObjectNode newNode = objectMapper.createObjectNode();
+                newNode.put(PROP_OBJECT_EMPSUP, objEscalado.getIdEmpleadoEsc());
+                newNode.put(PROP_OBJECT_EMPSUPDATE, objEscalado.getFecAltaEsc());
+                nodeAprobadores.add(newNode);
 
-                processInstance.setVariable(VAR_PROCESS_APPROVER, objectMapper.treeToValue(nodeRoot, clazz));
+                //Update Process variable
+                try {
+                    Class<?> clazz = Class.forName(CLASS_NAME, true, classLoader);
 
+                    processInstance.setVariable(VAR_PROCESS_APPROVER, objectMapper.treeToValue(nodeRoot, clazz));
+
+                } catch (IOException ie) {
+                    throw new RuntimeException(ie.getMessage());
+                } catch (ClassNotFoundException nex) {
+                    throw new RuntimeException(nex.getMessage());
+                }
             }
-            catch (IOException ie) {
-                throw new RuntimeException(ie.getMessage());
-            }
-            catch (ClassNotFoundException nex) {
-                throw new RuntimeException(nex.getMessage());
-            }
-
         }
         else {
             throw new RuntimeException("Exception lstAprobadores.aprobadores list is empty");
@@ -136,14 +129,11 @@ public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
     }
 
 
-    private ResponseEscaladoDTO getEscalation(String idEmpleado, String fecAltaEmpleado, String idEmpSup, String fecAltaEmpSup) {
+    private ResponseEscaladoDTO getEscalation(String idEmpleado, String idEmpSup) {
 
         Map<String, Object> response = new HashMap<String, Object>();
-        String strQueryParams = "&P_ID_EMPLEADO_EMP=" + idEmpleado.replace("A", "")
-                + "&P_FEC_ALTA_EMP=" + fecAltaEmpleado
-                + "&P_ID_EMPLEADO_SUP=" + idEmpSup.replace("A", "")
-                + "&P_FEC_ALTA_SUP=" + fecAltaEmpSup;
-        String strPath = PATH_ESCALACION + QUERY_PARAM_FIJO + strQueryParams;
+        String strQueryParams = "?LEGAJO_EMPLEADO="+ idEmpleado +"&LEGAJO_AUTORIZANTE=" + idEmpSup;
+        String strPath = PATH_ESCALACION + strQueryParams;
         ResponseEscaladoDTO objEscalado = null;
 
         try {
@@ -160,7 +150,8 @@ public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
 
         }
         catch(Throwable ex) {
-            throw new RuntimeException(ex);
+            logger.info("Error", ex);
+            //throw new RuntimeException(ex);
         }
 
         return objEscalado;
