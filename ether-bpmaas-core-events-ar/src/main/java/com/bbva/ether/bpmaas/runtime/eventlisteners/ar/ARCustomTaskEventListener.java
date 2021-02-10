@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.jbpm.kie.services.impl.admin.UserTaskAdminServiceImpl;
 import org.jbpm.services.api.ProcessService;
 import org.jbpm.services.api.UserTaskService;
 import org.jbpm.services.api.service.ServiceRegistry;
@@ -15,6 +16,8 @@ import org.jbpm.services.task.events.DefaultTaskEventListener;
 import org.kie.api.task.TaskEvent;
 import org.kie.api.task.model.Task;
 import org.kie.api.task.model.User;
+import org.kie.internal.identity.IdentityProvider;
+import org.kie.internal.task.api.TaskContext;
 import org.kie.internal.task.api.TaskModelProvider;
 import org.jbpm.workflow.instance.WorkflowProcessInstance;
 
@@ -24,6 +27,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
@@ -58,14 +62,29 @@ public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
         Task ti = event.getTask();
         //Obtener siguiente usuario a Escalar y actualiza variable de proceso (listaAprobadores)
         ArrayList<User> listUsers = getPotentialOwners(ti.getTaskData().getProcessInstanceId());
-        String initialAssignUser = listUsers.get(0).getId();
 
-        logger.info("ProcessId-TaskId[" + ti.getTaskData().getProcessInstanceId() + "-" +ti.getId() + "] InitiallyAssignedUser: " + initialAssignUser);
+        TaskContext context = (TaskContext)event.getTaskContext();
+        context.loadTaskVariables(ti);
+        String userAdmin = (String)ti.getTaskData().getTaskInputVariables().get("BusinessAdministratorId");
+
+        //Para que sea compatible con la version 1.1.0 del Proceso, que no tiene el BusinessAdministratorId
+        if(userAdmin == null) {
+            userAdmin = listUsers.get(0).getId();
+
+            logger.info("ProcessId-TaskId[" + ti.getTaskData().getProcessInstanceId() + "-" +ti.getId() + "] Add TaskAdminUser: " + userAdmin);
+
+            UserTaskAdminServiceImpl adminTaskServiceImpl = getTaskAdminService("Administrator");
+            adminTaskServiceImpl.addBusinessAdmins(ti.getId(), false, listUsers.get(0));
+            adminTaskServiceImpl.addTaskInput(ti.getId(), "BusinessAdministratorId", userAdmin);
+        }
+        //
+
+        logger.info("ProcessId-TaskId[" + ti.getTaskData().getProcessInstanceId() + "-" +ti.getId() + "] TaskAdminUser: " + userAdmin);
 
         UserTaskService userTaskService = (UserTaskService)ServiceRegistry.get().service(ServiceRegistry.USER_TASK_SERVICE);
 
         for (User objUserN : listUsers) {
-            userTaskService.delegate(ti.getId(), initialAssignUser, objUserN.getId());
+            userTaskService.delegate(ti.getId(), userAdmin, objUserN.getId());
         }
 
         logger.info("ProcessId-TaskId[" + ti.getTaskData().getProcessInstanceId() + "-" +ti.getId() + "] New List potOwners: " + ti.getPeopleAssignments().getPotentialOwners());
@@ -172,6 +191,28 @@ public class ARCustomTaskEventListener extends DefaultTaskEventListener  {
         }
 
         return restClient;
+    }
+
+    private UserTaskAdminServiceImpl getTaskAdminService(String identityUser) {
+        UserTaskAdminServiceImpl adminTaskServiceImpl = (UserTaskAdminServiceImpl) ServiceRegistry.get().service(ServiceRegistry.USER_TASK_ADMIN_SERVICE);
+        adminTaskServiceImpl.setIdentityProvider(new IdentityProvider() {
+            @Override
+            public String getName() {
+                return identityUser;
+            }
+
+            @Override
+            public List<String> getRoles() {
+                return null;
+            }
+
+            @Override
+            public boolean hasRole(String s) {
+                return false;
+            }
+        });
+
+        return adminTaskServiceImpl;
     }
 
 }
