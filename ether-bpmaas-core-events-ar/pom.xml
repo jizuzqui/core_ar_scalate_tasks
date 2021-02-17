@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.bbva.ether.bpmaas.runtime</groupId>
     <artifactId>ether-bpmaas-core-events-ar</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <parent>
         <groupId>com.bbva.bpms.mvn</groupId>
         <artifactId>lib-parent</artifactId>
